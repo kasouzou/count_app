@@ -30,42 +30,69 @@ class _CounterPageState extends State<CounterPage> {
   String _selectedSound = 'click1.mp3'; // ファイル名だけ
   int? _goalCount = 10; // デフォルトで10回
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  late AudioPlayer _audioPlayer;
+  bool _isSoundReady = false;
 
-  void _increment() async {
-    print('increment called');
+  @override
+  void initState() {
+    super.initState();
+    _audioPlayer = AudioPlayer();
+    _preloadSound(_selectedSound);
+  }
 
+  Future<void> _preloadSound(String soundFile) async {
     try {
-      if (_soundEnabled) {
+      await _audioPlayer.setSource(AssetSource('sounds/$soundFile'));
+      _isSoundReady = true;
+    } catch (e) {
+      debugPrint('音声プリロード失敗: $e');
+      _isSoundReady = false;
+    }
+  }
+
+  Future<void> _increment() async {
+    try {
+      if (_soundEnabled && _isSoundReady) {
+        await _audioPlayer.seek(Duration.zero);
         await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
       }
+
       if (_vibrationEnabled && (await Vibration.hasVibrator() ?? false)) {
         Vibration.vibrate(duration: 50);
       }
     } catch (e) {
-      print('Error playing sound or vibrating: $e');
+      debugPrint('再生・バイブエラー: $e');
     }
 
     setState(() {
       _count++;
     });
 
-    // ゴールに達した時の追加アクション
     if (_goalCount != null && _count == _goalCount) {
       if (_vibrationEnabled) {
         Vibration.vibrate(pattern: [0, 200, 100, 200, 100, 200]);
       }
-      if (_soundEnabled) {
+      if (_soundEnabled && _isSoundReady) {
+        await _audioPlayer.seek(Duration.zero);
         await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+        await _audioPlayer.seek(Duration.zero);
         await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
       }
     }
   }
 
-  void _reset() {
+  Future<void> _reset() async {
     setState(() {
       _count = 0;
     });
+  }
+
+  Future<void> _changeSound(String newSound) async {
+    setState(() {
+      _selectedSound = newSound;
+      _isSoundReady = false;
+    });
+    await _preloadSound(newSound);
   }
 
   @override
@@ -123,9 +150,9 @@ class _CounterPageState extends State<CounterPage> {
                     })
                     .toList(),
                 onChanged: (String? value) {
-                  setState(() {
-                    if (value != null) _selectedSound = value;
-                  });
+                  if (value != null) {
+                    _changeSound(value);
+                  }
                 },
               ),
             ),
