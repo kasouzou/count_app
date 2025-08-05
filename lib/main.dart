@@ -50,33 +50,54 @@ class _CounterPageState extends State<CounterPage> {
     }
   }
 
-  Future<void> _increment() async {
-    try {
-      if (_soundEnabled && _isSoundReady) {
-        await _audioPlayer.seek(Duration.zero);
-        await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
-      }
-
-      if (_vibrationEnabled && (await Vibration.hasVibrator() ?? false)) {
-        Vibration.vibrate(duration: 50);
-      }
-    } catch (e) {
-      debugPrint('再生・バイブエラー: $e');
-    }
-
+  void _increment() {
+    // まずUIのカウントを即更新
     setState(() {
       _count++;
     });
 
+    // 以降の処理は非同期にまとめて並行実行
+    _handleSoundAndVibration();
+    _checkGoal();
+  }
+
+  Future<void> _handleSoundAndVibration() async {
+    // バイブは速いので即呼び出しでOK
+    if (_vibrationEnabled && await Vibration.hasVibrator() ?? false) {
+      Vibration.vibrate(duration: 50);
+    }
+
+    if (_soundEnabled) {
+      if (!_isSoundReady) {
+        // プリロードがまだなら裏で始めるだけ（再生はスキップ）
+        await _preloadSound(_selectedSound);
+        return;
+      }
+      try {
+        // 音はプリロード済みなので再生する
+        await _audioPlayer.seek(Duration.zero);
+        await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+      } catch (e) {
+        debugPrint('音再生エラー: $e');
+      }
+    }
+  }
+
+  Future<void> _checkGoal() async {
     if (_goalCount != null && _count == _goalCount) {
       if (_vibrationEnabled) {
         Vibration.vibrate(pattern: [0, 200, 100, 200, 100, 200]);
       }
       if (_soundEnabled && _isSoundReady) {
-        await _audioPlayer.seek(Duration.zero);
-        await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
-        await _audioPlayer.seek(Duration.zero);
-        await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+        try {
+          await _audioPlayer.seek(Duration.zero);
+          await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+          await Future.delayed(Duration(milliseconds: 300));
+          await _audioPlayer.seek(Duration.zero);
+          await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+        } catch (e) {
+          debugPrint('ゴール音再生エラー: $e');
+        }
       }
     }
   }
