@@ -31,6 +31,7 @@ dependencies:
   flutter:
     sdk: flutter
   vibration: ^3.1.3
+  audioplayers: ^6.5.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -53,11 +54,12 @@ flutter_launcher_icons:
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
-
+# 
 # The following section is specific to Flutter packages.
 flutter:
   assets:
-    - assets\icon\icon.png
+    - assets/icon/icon.png
+    - assets/sounds/
   # The following line ensures that the Material Icons font is
   # included with your application, so that you can use the icons in
   # the material Icons class.

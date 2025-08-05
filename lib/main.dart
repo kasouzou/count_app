@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
+import 'package:audioplayers/audioplayers.dart';
 
 void main() {
   runApp(MyCuteCounterApp());
@@ -24,21 +25,53 @@ class CounterPage extends StatefulWidget {
 
 class _CounterPageState extends State<CounterPage> {
   int _count = 0;
-  bool _vibrationEnabled = true; // バイブON/OFF状態
+  bool _vibrationEnabled = true;
+  bool _soundEnabled = true;
+  String _selectedSound = 'click1.mp3'; // ファイル名だけ
+  int? _goalCount = 10; // デフォルトで10回
+
+  final AudioPlayer _audioPlayer = AudioPlayer();
 
   void _increment() async {
-    if (_vibrationEnabled && (await Vibration.hasVibrator() ?? false)) {
-      Vibration.vibrate(duration: 50);
+    print('increment called');
+
+    try {
+      if (_soundEnabled) {
+        await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+      }
+      if (_vibrationEnabled && (await Vibration.hasVibrator() ?? false)) {
+        Vibration.vibrate(duration: 50);
+      }
+    } catch (e) {
+      print('Error playing sound or vibrating: $e');
     }
+
     setState(() {
       _count++;
     });
+
+    // ゴールに達した時の追加アクション
+    if (_goalCount != null && _count == _goalCount) {
+      if (_vibrationEnabled) {
+        Vibration.vibrate(pattern: [0, 200, 100, 200, 100, 200]);
+      }
+      if (_soundEnabled) {
+        await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+        await _audioPlayer.play(AssetSource('sounds/$_selectedSound'));
+      }
+    }
   }
 
   void _reset() {
     setState(() {
       _count = 0;
     });
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
   }
 
   @override
@@ -49,6 +82,7 @@ class _CounterPageState extends State<CounterPage> {
     final double resetButtonHeight = isPortrait ? 80 : 60;
 
     return Scaffold(
+      extendBodyBehindAppBar: true,
       drawer: Drawer(
         child: ListView(
           children: [
@@ -69,17 +103,62 @@ class _CounterPageState extends State<CounterPage> {
                 });
               },
             ),
+            SwitchListTile(
+              title: Text('クリック音を鳴らす'),
+              value: _soundEnabled,
+              activeColor: Colors.pink,
+              onChanged: (bool value) {
+                setState(() {
+                  _soundEnabled = value;
+                });
+              },
+            ),
+            ListTile(
+              title: Text('クリック音を選ぶ'),
+              trailing: DropdownButton<String>(
+                value: _selectedSound,
+                items: ['click1.mp3', 'click2.mp3', 'click3.mp3', 'click4.mp3']
+                    .map((sound) {
+                      return DropdownMenuItem(value: sound, child: Text(sound));
+                    })
+                    .toList(),
+                onChanged: (String? value) {
+                  setState(() {
+                    if (value != null) _selectedSound = value;
+                  });
+                },
+              ),
+            ),
+            ListTile(
+              title: Text('ゴールの回数'),
+              subtitle: Text(_goalCount?.toString() ?? '設定なし'),
+              trailing: DropdownButton<int?>(
+                value: _goalCount,
+                items: [null, 10, 20, 50, 100].map((count) {
+                  return DropdownMenuItem(
+                    value: count,
+                    child: Text(count?.toString() ?? '設定なし'),
+                  );
+                }).toList(),
+                onChanged: (int? value) {
+                  setState(() {
+                    _goalCount = value;
+                  });
+                },
+              ),
+            ),
           ],
         ),
       ),
       appBar: AppBar(
         title: Text('Cute Counter'),
-        backgroundColor: Colors.pinkAccent,
+        backgroundColor: Colors.transparent,
+        elevation: 0,
       ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [Colors.pinkAccent, Colors.pink],
+            colors: [Colors.pink.shade100, Colors.pink.shade200],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -87,8 +166,8 @@ class _CounterPageState extends State<CounterPage> {
         child: Column(
           children: [
             SizedBox(
-              height: MediaQuery.of(context).padding.top + 16,
-            ), // ノッチ対策で余白
+              height: MediaQuery.of(context).padding.top + kToolbarHeight,
+            ),
             Container(
               width: double.infinity,
               height: resetButtonHeight,
