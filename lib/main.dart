@@ -3,6 +3,7 @@ import 'package:vibration/vibration.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(MyCuteCounterApp());
@@ -16,9 +17,11 @@ class MyCuteCounterApp extends StatelessWidget {
       theme: ThemeData(
         primarySwatch: Colors.pink,
         // ここでデフォルトのフォントを KaiseiDecol にする
-        fontFamily: 'KaiseiDecol',
+        fontFamily: 'MochiyPopOne',
         // (必要なら textTheme を微調整)
-        textTheme: ThemeData.light().textTheme.apply(fontFamily: 'KaiseiDecol'),
+        textTheme: ThemeData.light().textTheme.apply(
+          fontFamily: 'MochiyPopOne',
+        ),
       ),
       home: CounterPage(),
       debugShowCheckedModeBanner: false,
@@ -253,10 +256,9 @@ class _CounterPageState extends State<CounterPage> {
                     child: Text(
                       '設定',
                       style: TextStyle(
-                        fontFamily: 'KaiseiDecol',
+                        fontFamily: 'MochiyPopOne',
                         color: Colors.white,
                         fontSize: 24,
-                        fontWeight: FontWeight.bold,
                         shadows: [
                           Shadow(
                             blurRadius: 4,
@@ -271,7 +273,7 @@ class _CounterPageState extends State<CounterPage> {
 
                 // 各タイルを透明にして背景のグラデを生かす
                 SwitchListTile(
-                  title: Text('バイブを鳴らす', style: TextStyle(color: Colors.white)),
+                  title: Text('バイブをならす', style: TextStyle(color: Colors.white)),
                   value: _vibrationEnabled,
                   activeColor: Colors.white,
                   activeTrackColor: Colors.pink.shade200,
@@ -285,7 +287,7 @@ class _CounterPageState extends State<CounterPage> {
 
                 SwitchListTile(
                   title: Text(
-                    'クリック音を鳴らす',
+                    'クリック音をならす',
                     style: TextStyle(color: Colors.white),
                   ),
                   value: _soundEnabled,
@@ -304,7 +306,7 @@ class _CounterPageState extends State<CounterPage> {
 
                 ListTile(
                   title: Text(
-                    'クリック音を選ぶ',
+                    'タップ音をえらぶ',
                     style: TextStyle(color: Colors.white),
                   ),
                   trailing: DropdownButton<String>(
@@ -360,6 +362,30 @@ class _CounterPageState extends State<CounterPage> {
                   child: Text(
                     'アイコンや効果音の設定はここで切り替えられます。',
                     style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+                SizedBox(height: 12),
+
+                // クレジット表記(タップでサイトへ)
+                Center(
+                  child: InkWell(
+                    onTap: () async {
+                      final uri = Uri.parse('https://otologic.jp');
+                      if (!await launchUrl(
+                        uri,
+                        mode: LaunchMode.externalApplication,
+                      )) {
+                        debugPrint('Could not launch $uri');
+                      }
+                    },
+                    child: Text(
+                      '効果音提供 オトロジック(https://otologic.jp)',
+                      style: TextStyle(
+                        color: Colors.white70,
+                        fontSize: 12,
+                        fontFamily: 'MochiyPopOne',
+                      ),
+                    ),
                   ),
                 ),
                 SizedBox(height: 24),
@@ -418,6 +444,13 @@ class _CounterPageState extends State<CounterPage> {
                   style: TextStyle(
                     fontSize: isPortrait ? 24 : 20,
                     fontWeight: FontWeight.bold,
+                    shadows: [
+                      Shadow(
+                        blurRadius: 5.0,
+                        color: Colors.pink.shade900,
+                        offset: Offset(2.0, 2.0),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -471,7 +504,7 @@ class _CounterPageState extends State<CounterPage> {
                   elevation: 6,
                 ),
                 child: Text(
-                  'カウント！',
+                  'カウント',
                   style: TextStyle(
                     fontSize: isPortrait ? 30 : 24,
                     color: Colors.white,
