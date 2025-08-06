@@ -1,9 +1,10 @@
+// lib/main.dart
 import 'package:flutter/material.dart';
 import 'package:vibration/vibration.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // ← 追加
 
 void main() {
   runApp(MyCuteCounterApp());
@@ -16,9 +17,7 @@ class MyCuteCounterApp extends StatelessWidget {
       title: 'Cute Counter',
       theme: ThemeData(
         primarySwatch: Colors.pink,
-        // ここでデフォルトのフォントを KaiseiDecol にする
         fontFamily: 'MochiyPopOne',
-        // (必要なら textTheme を微調整)
         textTheme: ThemeData.light().textTheme.apply(
           fontFamily: 'MochiyPopOne',
         ),
@@ -38,7 +37,7 @@ class _CounterPageState extends State<CounterPage> {
   int _count = 0;
   bool _vibrationEnabled = true;
   bool _soundEnabled = true;
-  String _selectedSound = 'click1.mp3'; // ファイル名だけ
+  String _selectedSound = 'click1.mp3'; // タップ音（既存）
   int? _goalCount = 10; // デフォルトで10回
 
   // サウンドファイル一覧（assets/sounds/配下）
@@ -49,27 +48,49 @@ class _CounterPageState extends State<CounterPage> {
     'click4.mp3',
   ];
 
+  // --- 追加: ゴール音一覧 ---
+  final List<String> _goalSoundFiles = [
+    'goal1.wav',
+    'goal2.wav',
+    'goal3.mp3',
+    'goal4.mp3',
+  ];
+  String _selectedGoalSound = 'goal1.wav'; // ゴール音のデフォルト
+
+  // 保存済みカスタムゴール（永続化）
+  List<int> _savedGoals = [];
+  static const String _prefsSavedGoalsKey = 'saved_goals_v1';
+
+  // セッション内達成履歴（必要なら永続化も可能）
+  List<int> _achievedHistory = [];
+
   // ファイル名 -> AudioPlayer のマップ
   final Map<String, AudioPlayer> _players = {};
   // ファイル名 -> プリロード完了フラグ
   final Map<String, bool> _ready = {};
 
-  // 簡易デバッグログ（必要ならexpand）
+  // 簡易デバッグログ
   void _log(String msg) => debugPrint('[CuteCounter] $msg');
 
   @override
   void initState() {
     super.initState();
-    // 起動時に全部プリロードを開始（非同期で行う）
+    // タップ音プリロード
     for (final f in _soundFiles) {
       _ready[f] = false;
       _createAndPreload(f);
     }
+    // ゴール音プリロード
+    for (final f in _goalSoundFiles) {
+      _ready[f] = false;
+      _createAndPreload(f);
+    }
+    // 保存済みカスタムゴールのロード
+    _loadSavedGoals();
   }
 
   Future<void> _createAndPreload(String fileName) async {
     try {
-      // 既にプレイヤーがいるなら dispose して再作成（安全策）
       if (_players.containsKey(fileName)) {
         try {
           await _players[fileName]!.stop();
@@ -80,11 +101,9 @@ class _CounterPageState extends State<CounterPage> {
       }
 
       final player = AudioPlayer();
-      // 再生終了後は停止にしておく（連続再生の扱いを明確に）
       try {
         await player.setReleaseMode(ReleaseMode.stop);
       } catch (_) {}
-      // プリロード（AssetSource をセット）
       await player.setSource(AssetSource('sounds/$fileName'));
       _players[fileName] = player;
       _ready[fileName] = true;
@@ -95,25 +114,22 @@ class _CounterPageState extends State<CounterPage> {
     }
   }
 
-  // 必要に応じて選択ファイルだけプリロードするユーティリティ
   Future<void> _ensurePreloaded(String fileName) async {
     if (_ready[fileName] == true && _players.containsKey(fileName)) return;
     await _createAndPreload(fileName);
   }
 
   void _increment() {
-    // UIは即時更新（ユーザー感触を優先）
     setState(() {
       _count++;
     });
 
-    // 非同期で音と振動を処理（UIはブロックしない）
     _handleSoundAndVibration();
     _checkGoal();
   }
 
   Future<void> _handleSoundAndVibration() async {
-    // 1) バイブは先に行う（速い）
+    // バイブ
     try {
       if (_vibrationEnabled && (await Vibration.hasVibrator() ?? false)) {
         Vibration.vibrate(duration: 50);
@@ -122,34 +138,28 @@ class _CounterPageState extends State<CounterPage> {
       _log('Vibration error: $e');
     }
 
-    // 2) 音
+    // タップ音
     if (!_soundEnabled) return;
-
     final file = _selectedSound;
-
-    // もしまだプリロードされていなければ非同期でプリロード開始して再生はスキップする（次回は鳴る）
     if (!(_ready[file] == true && _players.containsKey(file))) {
       _log('再生前にプリロードが必要: $file (開始します)');
-      // ここは待たずにバックグラウンドで始める（遅延を避けるため）
       _ensurePreloaded(file);
       return;
     }
 
     final player = _players[file]!;
     try {
-      // 先頭に戻して resume（setSource は既に済）
       await player.seek(Duration.zero);
       await player.resume();
     } catch (e) {
       _log('音再生エラー(play/resume): $e — 再プリロードを試みます');
-      // 失敗したら再プリロードして次回に備える
       await _createAndPreload(file);
     }
   }
 
   Future<void> _checkGoal() async {
     if (_goalCount != null && _count == _goalCount) {
-      // ゴール時のまとめ振動（pattern）
+      // 振動（まとめ）
       try {
         if (_vibrationEnabled) {
           Vibration.vibrate(pattern: [0, 200, 100, 200, 100, 200]);
@@ -158,26 +168,34 @@ class _CounterPageState extends State<CounterPage> {
         _log('Vibration error (goal): $e');
       }
 
-      // ゴール音はできるだけ鳴らす（プリロード済みなら鳴らす）
+      // ゴール音（タップ音とは別）
       if (_soundEnabled) {
-        final file = _selectedSound;
+        final file = _selectedGoalSound;
         if (!(_ready[file] == true && _players.containsKey(file))) {
-          _log('ゴール時にプリロードが未完了: $file');
-          await _ensurePreloaded(file); // 後続に備える
-          return;
+          _log('ゴール時にプリロードが未完了: $file — プリロード開始');
+          await _ensurePreloaded(file);
         }
-        final player = _players[file]!;
-        try {
-          await player.seek(Duration.zero);
-          await player.resume();
-          await Future.delayed(Duration(milliseconds: 300));
-          await player.seek(Duration.zero);
-          await player.resume();
-        } catch (e) {
-          _log('ゴール音再生エラー: $e');
-          await _createAndPreload(file);
+        if (_ready[file] == true && _players.containsKey(file)) {
+          final player = _players[file]!;
+          try {
+            await player.seek(Duration.zero);
+            await player.resume();
+          } catch (e) {
+            _log('ゴール音再生エラー: $e');
+            await _createAndPreload(file);
+          }
         }
       }
+
+      // 履歴に追加（セッション）
+      setState(() {
+        if (_goalCount != null) _achievedHistory.insert(0, _goalCount!);
+      });
+
+      // ユーザー通知
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('おめでとう！ ${_goalCount} 回達成しました🎉')));
     }
   }
 
@@ -191,13 +209,146 @@ class _CounterPageState extends State<CounterPage> {
     setState(() {
       _selectedSound = newSound;
     });
-    // 変更したファイルを確実にプリロード（非同期で行う）
     await _ensurePreloaded(newSound);
+  }
+
+  // --- SharedPreferences 操作 ---
+  Future<void> _loadSavedGoals() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final List<String>? list = sp.getStringList(_prefsSavedGoalsKey);
+      if (list != null) {
+        setState(() {
+          _savedGoals = list
+              .map((s) => int.tryParse(s) ?? 0)
+              .where((n) => n > 0)
+              .toList();
+          _savedGoals.sort();
+        });
+      }
+    } catch (e) {
+      _log('SavedGoals load error: $e');
+    }
+  }
+
+  Future<void> _saveSavedGoals() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setStringList(
+        _prefsSavedGoalsKey,
+        _savedGoals.map((i) => i.toString()).toList(),
+      );
+    } catch (e) {
+      _log('SavedGoals save error: $e');
+    }
+  }
+
+  // --- チップ UI ---
+  Widget _goalChip(int? value, {String? label}) {
+    final bool selected = _goalCount == value;
+    final display = label ?? (value?.toString() ?? '設定なし');
+    return InputChip(
+      label: Text(display, style: TextStyle(color: Colors.white)),
+      selected: selected,
+      selectedColor: Colors.pink.shade400,
+      backgroundColor: Colors.pink.shade200.withOpacity(0.6),
+      onSelected: (_) {
+        setState(() {
+          _goalCount = value;
+        });
+      },
+      avatar: (value != null && _savedGoals.contains(value))
+          ? GestureDetector(
+              onTap: () => _confirmRemoveSavedGoal(value),
+              child: Icon(Icons.delete, color: Colors.white, size: 18),
+            )
+          : null,
+    );
+  }
+
+  // --- カスタム入力ダイアログ ---
+  Future<void> _showCustomGoalDialog() async {
+    final controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('カスタムゴールを入力'),
+          content: Form(
+            key: formKey,
+            child: TextFormField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(hintText: '例: 23'),
+              validator: (v) {
+                if (v == null || v.trim().isEmpty) return '数字を入力してください';
+                final n = int.tryParse(v.trim());
+                if (n == null || n <= 0) return '正の整数を入力してください';
+                return null;
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('キャンセル'),
+            ),
+            TextButton(
+              onPressed: () {
+                if (formKey.currentState?.validate() == true) {
+                  final int newGoal = int.parse(controller.text.trim());
+                  if (!_savedGoals.contains(newGoal)) {
+                    setState(() {
+                      _savedGoals.add(newGoal);
+                      _savedGoals.sort();
+                    });
+                    _saveSavedGoals();
+                  }
+                  setState(() {
+                    _goalCount = newGoal;
+                  });
+                  Navigator.of(context).pop();
+                }
+              },
+              child: Text('保存＆選択'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  // --- 保存済みゴールの削除確認 ---
+  Future<void> _confirmRemoveSavedGoal(int val) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('削除しますか？'),
+        content: Text('$val を保存リストから削除しますか？'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('キャンセル'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('削除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      setState(() {
+        _savedGoals.remove(val);
+      });
+      _saveSavedGoals();
+    }
   }
 
   @override
   void dispose() {
-    // 全プレイヤーを破棄
     for (final p in _players.values) {
       try {
         p.dispose();
@@ -220,11 +371,10 @@ class _CounterPageState extends State<CounterPage> {
         child: Container(
           decoration: BoxDecoration(
             gradient: LinearGradient(
-              // カウントボタンやリセットのグラデと近い色合いに揃える
               colors: [
-                Color(0xFFFF92B6), // 上寄りのピンク（例）
-                Colors.pink.shade100, // 中間の薄ピンク
-                Colors.pink.shade300, // 下寄りのピンク
+                Color(0xFFFF92B6),
+                Colors.pink.shade100,
+                Colors.pink.shade300,
               ],
               begin: Alignment.topCenter,
               end: Alignment.bottomCenter,
@@ -236,7 +386,6 @@ class _CounterPageState extends State<CounterPage> {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                // Headerもグラデか透明にして一体感を強める
                 DrawerHeader(
                   decoration: BoxDecoration(
                     gradient: LinearGradient(
@@ -271,7 +420,6 @@ class _CounterPageState extends State<CounterPage> {
                   ),
                 ),
 
-                // 各タイルを透明にして背景のグラデを生かす
                 SwitchListTile(
                   title: Text('バイブをならす', style: TextStyle(color: Colors.white)),
                   value: _vibrationEnabled,
@@ -329,33 +477,94 @@ class _CounterPageState extends State<CounterPage> {
                   ),
                 ),
 
+                // --- 追加: ゴール音選択 ---
                 ListTile(
-                  title: Text('ゴールの回数', style: TextStyle(color: Colors.white)),
-                  subtitle: Text(
-                    _goalCount?.toString() ?? '設定なし',
-                    style: TextStyle(color: Colors.white70),
+                  title: Text(
+                    'ゴール音をえらぶ',
+                    style: TextStyle(color: Colors.white),
                   ),
-                  trailing: DropdownButton<int?>(
+                  trailing: DropdownButton<String>(
                     dropdownColor: Colors.pink.shade200,
-                    value: _goalCount,
-                    items: [null, 10, 20, 50, 100].map((count) {
-                      return DropdownMenuItem(
-                        value: count,
-                        child: Text(
-                          count?.toString() ?? '設定なし',
-                          style: TextStyle(color: Colors.white),
-                        ),
-                      );
-                    }).toList(),
-                    onChanged: (int? value) {
-                      setState(() {
-                        _goalCount = value;
-                      });
+                    value: _selectedGoalSound,
+                    items: _goalSoundFiles
+                        .map(
+                          (sound) => DropdownMenuItem(
+                            value: sound,
+                            child: Text(
+                              sound,
+                              style: TextStyle(color: Colors.white),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (String? value) async {
+                      if (value != null) {
+                        setState(() {
+                          _selectedGoalSound = value;
+                        });
+                        await _ensurePreloaded(value);
+                      }
                     },
                   ),
                 ),
 
-                // 余白（必要に応じて設定ボタンや説明を追加）
+                // --- 置換: カスタム追加対応のゴール選択エリア ---
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('ゴールの回数', style: TextStyle(color: Colors.white)),
+                      SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _goalChip(null, label: '設定なし'),
+                          _goalChip(10),
+                          _goalChip(20),
+                          _goalChip(50),
+                          _goalChip(100),
+                          ..._savedGoals.map((g) => _goalChip(g)).toList(),
+                        ],
+                      ),
+                      SizedBox(height: 8),
+                      Row(
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: () => _showCustomGoalDialog(),
+                            icon: Icon(Icons.add, color: Colors.white),
+                            label: Text(
+                              'カスタムを追加',
+                              style: TextStyle(color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.pink.shade300,
+                            ),
+                          ),
+                          SizedBox(width: 8),
+                          if (_savedGoals.isNotEmpty)
+                            TextButton(
+                              onPressed: () {
+                                setState(() {
+                                  _savedGoals.clear();
+                                });
+                                _saveSavedGoals();
+                              },
+                              child: Text(
+                                '全部削除',
+                                style: TextStyle(color: Colors.white70),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+
                 SizedBox(height: 24),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16.0),
@@ -366,7 +575,6 @@ class _CounterPageState extends State<CounterPage> {
                 ),
                 SizedBox(height: 12),
 
-                // クレジット表記(タップでサイトへ)
                 Center(
                   child: InkWell(
                     onTap: () async {
@@ -421,7 +629,7 @@ class _CounterPageState extends State<CounterPage> {
                   colors: [
                     const Color.fromARGB(255, 255, 144, 181),
                     Colors.pink.shade100,
-                  ], // 薄めピンク
+                  ],
                   begin: Alignment.bottomCenter,
                   end: Alignment.topCenter,
                 ),
@@ -432,7 +640,7 @@ class _CounterPageState extends State<CounterPage> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
-                  surfaceTintColor: Colors.transparent, // ← Material3ならこれで灰色消える
+                  surfaceTintColor: Colors.transparent,
                   elevation: 0,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
