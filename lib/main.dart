@@ -4,7 +4,7 @@ import 'package:vibration/vibration.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart'; // ← 追加
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   runApp(MyCuteCounterApp());
@@ -37,10 +37,10 @@ class _CounterPageState extends State<CounterPage> {
   int _count = 0;
   bool _vibrationEnabled = true;
   bool _soundEnabled = true;
-  String _selectedSound = 'click1.mp3'; // タップ音（既存）
+  String _selectedSound = 'click1.mp3'; // タップ音
   int? _goalCount = 10; // デフォルトで10回
 
-  // サウンドファイル一覧（assets/sounds/配下）
+  // タップ音ファイル（assets/sounds/ 配下）
   final List<String> _soundFiles = [
     'click1.mp3',
     'click2.mp3',
@@ -48,28 +48,35 @@ class _CounterPageState extends State<CounterPage> {
     'click4.mp3',
   ];
 
-  // --- 追加: ゴール音一覧 ---
+  // --- ゴール音一覧（ファイル名） ---
   final List<String> _goalSoundFiles = [
     'goal1.wav',
     'goal2.wav',
     'goal3.mp3',
     'goal4.mp3',
   ];
+
+  // ファイル名 -> 表示名（UI用ラベル）
+  final Map<String, String> _goalSoundLabels = {
+    'goal1.wav': '友達のお知らせ',
+    'goal2.wav': '友達の口笛',
+    'goal3.mp3': '猫のたいぞう',
+    'goal4.mp3': '猫のゴルバチョフ',
+  };
+
   String _selectedGoalSound = 'goal1.wav'; // ゴール音のデフォルト
 
   // 保存済みカスタムゴール（永続化）
   List<int> _savedGoals = [];
   static const String _prefsSavedGoalsKey = 'saved_goals_v1';
 
-  // セッション内達成履歴（必要なら永続化も可能）
+  // セッション内達成履歴
   List<int> _achievedHistory = [];
 
-  // ファイル名 -> AudioPlayer のマップ
+  // AudioPlayer 管理
   final Map<String, AudioPlayer> _players = {};
-  // ファイル名 -> プリロード完了フラグ
   final Map<String, bool> _ready = {};
 
-  // 簡易デバッグログ
   void _log(String msg) => debugPrint('[CuteCounter] $msg');
 
   @override
@@ -85,7 +92,7 @@ class _CounterPageState extends State<CounterPage> {
       _ready[f] = false;
       _createAndPreload(f);
     }
-    // 保存済みカスタムゴールのロード
+    // 保存済みゴールロード
     _loadSavedGoals();
   }
 
@@ -159,7 +166,7 @@ class _CounterPageState extends State<CounterPage> {
 
   Future<void> _checkGoal() async {
     if (_goalCount != null && _count == _goalCount) {
-      // 振動（まとめ）
+      // バイブ（まとめ）
       try {
         if (_vibrationEnabled) {
           Vibration.vibrate(pattern: [0, 200, 100, 200, 100, 200]);
@@ -256,6 +263,8 @@ class _CounterPageState extends State<CounterPage> {
         setState(() {
           _goalCount = value;
         });
+        // チップ選択後にドロワーを閉じる（UX向上）
+        Navigator.of(context).maybePop();
       },
       avatar: (value != null && _savedGoals.contains(value))
           ? GestureDetector(
@@ -267,6 +276,23 @@ class _CounterPageState extends State<CounterPage> {
   }
 
   // --- カスタム入力ダイアログ ---
+  Future<bool> _applyCustomGoal(String text) async {
+    final txt = text.trim();
+    final n = int.tryParse(txt);
+    if (n == null || n <= 0) return false;
+    if (!_savedGoals.contains(n)) {
+      setState(() {
+        _savedGoals.add(n);
+        _savedGoals.sort();
+      });
+      await _saveSavedGoals();
+    }
+    setState(() {
+      _goalCount = n;
+    });
+    return true;
+  }
+
   Future<void> _showCustomGoalDialog() async {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormState>();
@@ -281,12 +307,19 @@ class _CounterPageState extends State<CounterPage> {
             child: TextFormField(
               controller: controller,
               keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.done,
               decoration: InputDecoration(hintText: '例: 23'),
               validator: (v) {
                 if (v == null || v.trim().isEmpty) return '数字を入力してください';
                 final n = int.tryParse(v.trim());
                 if (n == null || n <= 0) return '正の整数を入力してください';
                 return null;
+              },
+              onFieldSubmitted: (_) async {
+                if (formKey.currentState?.validate() == true) {
+                  final ok = await _applyCustomGoal(controller.text);
+                  if (ok) Navigator.of(context).pop();
+                }
               },
             ),
           ),
@@ -296,20 +329,10 @@ class _CounterPageState extends State<CounterPage> {
               child: Text('キャンセル'),
             ),
             TextButton(
-              onPressed: () {
+              onPressed: () async {
                 if (formKey.currentState?.validate() == true) {
-                  final int newGoal = int.parse(controller.text.trim());
-                  if (!_savedGoals.contains(newGoal)) {
-                    setState(() {
-                      _savedGoals.add(newGoal);
-                      _savedGoals.sort();
-                    });
-                    _saveSavedGoals();
-                  }
-                  setState(() {
-                    _goalCount = newGoal;
-                  });
-                  Navigator.of(context).pop();
+                  final ok = await _applyCustomGoal(controller.text);
+                  if (ok) Navigator.of(context).pop();
                 }
               },
               child: Text('保存＆選択'),
@@ -477,26 +500,29 @@ class _CounterPageState extends State<CounterPage> {
                   ),
                 ),
 
-                // --- 追加: ゴール音選択 ---
+                // --- ゴール音選択（表示名を使う） ---
                 ListTile(
                   title: Text(
                     'ゴール音をえらぶ',
                     style: TextStyle(color: Colors.white),
                   ),
+                  subtitle: Text(
+                    _goalSoundLabels[_selectedGoalSound] ?? _selectedGoalSound,
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
                   trailing: DropdownButton<String>(
                     dropdownColor: Colors.pink.shade200,
                     value: _selectedGoalSound,
-                    items: _goalSoundFiles
-                        .map(
-                          (sound) => DropdownMenuItem(
-                            value: sound,
-                            child: Text(
-                              sound,
-                              style: TextStyle(color: Colors.white),
-                            ),
-                          ),
-                        )
-                        .toList(),
+                    items: _goalSoundFiles.map((sound) {
+                      final label = _goalSoundLabels[sound] ?? sound;
+                      return DropdownMenuItem<String>(
+                        value: sound,
+                        child: Text(
+                          label,
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      );
+                    }).toList(),
                     onChanged: (String? value) async {
                       if (value != null) {
                         setState(() {
@@ -508,7 +534,7 @@ class _CounterPageState extends State<CounterPage> {
                   ),
                 ),
 
-                // --- 置換: カスタム追加対応のゴール選択エリア ---
+                // --- カスタム追加対応のゴール選択エリア ---
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16.0,
